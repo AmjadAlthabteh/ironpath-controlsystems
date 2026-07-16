@@ -1,4 +1,3 @@
-# IronPath
 
 Rust Autonomous Robot Telemetry & Control Simulator
 
