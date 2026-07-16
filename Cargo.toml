@@ -1,0 +1,8 @@
+[package]
+name = "ironpath"
+version = "0.1.0"
+edition = "2021"
+description = "Autonomous ground robot telemetry and control simulator"
+license = "MIT"
+
+[dependencies]
