@@ -50,6 +50,22 @@ cargo test
 
 Running the simulator creates `telemetry.csv` in the project root.
 
+## Telemetry CSV
+
+The generated CSV contains:
+
+- `timestamp`
+- `position_x`
+- `position_y`
+- `obstacle_distance`
+- `sensor_age_us`
+- `speed`
+- `heading`
+- `battery`
+- `state`
+- `active_waypoint`
+- `loop_latency_us`
+
 ## Example output
 
 ```text
