@@ -13,10 +13,34 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-const CONTROL_HZ: u64 = 100;
-const DT: f64 = 1.0 / CONTROL_HZ as f64;
-const MAX_STEPS: usize = 3_000;
-const SAFETY_DISTANCE: f64 = 0.85;
+#[derive(Debug, Clone)]
+struct SimulationConfig {
+    control_hz: u64,
+    max_steps: usize,
+    safety_distance: f64,
+    telemetry_path: &'static str,
+}
+
+impl Default for SimulationConfig {
+    fn default() -> Self {
+        Self {
+            control_hz: 100,
+            max_steps: 3_000,
+            safety_distance: 0.85,
+            telemetry_path: "telemetry.csv",
+        }
+    }
+}
+
+impl SimulationConfig {
+    fn dt(&self) -> f64 {
+        1.0 / self.control_hz as f64
+    }
+
+    fn target_period(&self) -> Duration {
+        Duration::from_micros(1_000_000 / self.control_hz)
+    }
+}
 
 fn main() {
     if let Err(err) = run() {
@@ -26,6 +50,7 @@ fn main() {
 }
 
 fn run() -> Result<(), SimulationError> {
+    let config = SimulationConfig::default();
     let obstacles = ObstacleField::new(vec![
         Obstacle::new(Vector2::new(2.2, 0.7), 0.35),
         Obstacle::new(Vector2::new(4.3, 1.8), 0.45),
@@ -68,22 +93,23 @@ fn run() -> Result<(), SimulationError> {
     });
 
     let (telemetry_tx, telemetry_rx) = mpsc::channel::<TelemetryRecord>();
-    let telemetry_thread = thread::spawn(move || telemetry_writer("telemetry.csv", telemetry_rx));
+    let telemetry_thread =
+        thread::spawn(move || telemetry_writer(config.telemetry_path, telemetry_rx));
 
     let mut steering_pid = PidController::new(3.2, 0.0, 0.4, -2.5, 2.5);
     let mut speed_pid = PidController::new(1.8, 0.05, 0.1, 0.0, robot.max_speed);
-    let mut latencies = Vec::with_capacity(MAX_STEPS);
+    let mut latencies = Vec::with_capacity(config.max_steps);
     let mut distance_traveled = 0.0;
     let mut obstacles_avoided = 0;
     let mut was_avoiding = false;
     let started = Instant::now();
-    let target_period = Duration::from_millis(1_000 / CONTROL_HZ);
+    let target_period = config.target_period();
 
     robot.state = RobotState::Navigating;
 
     // Channels transfer owned snapshots and telemetry records across threads.
     // The standard library mpsc types ensure there is no shared mutable state to race.
-    for _step in 0..MAX_STEPS {
+    for _step in 0..config.max_steps {
         let loop_started = Instant::now();
         snapshot_tx.send(robot.snapshot())?;
 
@@ -99,19 +125,34 @@ fn run() -> Result<(), SimulationError> {
             robot.state = RobotState::Finished;
         } else if robot.battery <= 15.0 {
             robot.state = RobotState::LowBattery;
-        } else if let Some(avoidance) = obstacles.avoidance_direction(robot.position, SAFETY_DISTANCE)
+        } else if let Some(avoidance) =
+            obstacles.avoidance_direction(robot.position, config.safety_distance)
         {
             robot.state = RobotState::AvoidingObstacle;
             if !was_avoiding {
                 obstacles_avoided += 1;
             }
             was_avoiding = true;
-            step_robot(&mut robot, &mut steering_pid, &mut speed_pid, avoidance, 0.75);
+            step_robot(
+                &mut robot,
+                &mut steering_pid,
+                &mut speed_pid,
+                avoidance,
+                0.75,
+                config.dt(),
+            );
         } else if let Some(direction) = navigator.direction_to_active(robot.position) {
             robot.state = RobotState::Navigating;
             was_avoiding = false;
             let target_speed = robot.max_speed;
-            step_robot(&mut robot, &mut steering_pid, &mut speed_pid, direction, target_speed);
+            step_robot(
+                &mut robot,
+                &mut steering_pid,
+                &mut speed_pid,
+                direction,
+                target_speed,
+                config.dt(),
+            );
         }
 
         distance_traveled += Robot::distance_traveled_increment(previous_position, robot.position);
@@ -169,11 +210,12 @@ fn step_robot(
     speed_pid: &mut PidController,
     direction: Vector2,
     target_speed: f64,
+    dt: f64,
 ) {
     let desired_heading = direction.y.atan2(direction.x);
-    let steering = steering_pid.update(desired_heading, robot.heading, DT);
-    let speed = speed_pid.update(target_speed, robot.velocity.magnitude(), DT);
-    robot.apply_motion(direction, speed, steering, DT);
+    let steering = steering_pid.update(desired_heading, robot.heading, dt);
+    let speed = speed_pid.update(target_speed, robot.velocity.magnitude(), dt);
+    robot.apply_motion(direction, speed, steering, dt);
 }
 
 fn build_summary(
