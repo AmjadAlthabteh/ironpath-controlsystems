@@ -121,6 +121,8 @@ fn run() -> Result<(), SimulationError> {
         telemetry_tx.send(TelemetryRecord {
             timestamp_secs: started.elapsed().as_secs_f64(),
             position: sensor_packet.position,
+            obstacle_distance: sensor_packet.obstacle_distance,
+            sensor_age: sensor_packet.timestamp.elapsed(),
             speed: robot.velocity.magnitude(),
             heading: robot.heading,
             battery: sensor_packet.battery,

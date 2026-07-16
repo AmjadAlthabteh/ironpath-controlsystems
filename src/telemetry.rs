@@ -10,6 +10,8 @@ use std::time::Duration;
 pub struct TelemetryRecord {
     pub timestamp_secs: f64,
     pub position: Vector2,
+    pub obstacle_distance: Option<f64>,
+    pub sensor_age: Duration,
     pub speed: f64,
     pub heading: f64,
     pub battery: f64,
@@ -38,17 +40,22 @@ pub fn telemetry_writer(
     let mut writer = BufWriter::new(file);
     writeln!(
         writer,
-        "timestamp,position_x,position_y,speed,heading,battery,state,active_waypoint,loop_latency_us"
+        "timestamp,position_x,position_y,obstacle_distance,sensor_age_us,speed,heading,battery,state,active_waypoint,loop_latency_us"
     )?;
 
     let mut count = 0;
     for record in rx {
         writeln!(
             writer,
-            "{:.4},{:.4},{:.4},{:.4},{:.4},{:.2},{},{},{}",
+            "{:.4},{:.4},{:.4},{},{},{:.4},{:.4},{:.2},{},{},{}",
             record.timestamp_secs,
             record.position.x,
             record.position.y,
+            record
+                .obstacle_distance
+                .map(|distance| format!("{distance:.4}"))
+                .unwrap_or_else(|| "none".to_string()),
+            record.sensor_age.as_micros(),
             record.speed,
             record.heading,
             record.battery,
